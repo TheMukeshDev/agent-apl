@@ -4,15 +4,17 @@
 import os
 import json
 import re
-import google.generativeai as genai
-from dotenv import load_dotenv
+try:
+    import google.generativeai as genai
+    HAS_GEMINI_SDK = True
+except ImportError:
+    genai = None
+    HAS_GEMINI_SDK = False
+from config import settings
 
-# Load environment variables
-load_dotenv()
+GEMINI_API_KEY = settings.GEMINI_API_KEY
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if GEMINI_API_KEY:
+if GEMINI_API_KEY and HAS_GEMINI_SDK:
     genai.configure(api_key=GEMINI_API_KEY)
 
 # TODO: Future Integration:
@@ -92,8 +94,8 @@ def generate_recommendation(query: str) -> dict:
     Extracts search parameters from a natural language query using Google's Gemini API.
     If the API key is not configured or an error occurs, falls back to keyword matching.
     """
-    if not GEMINI_API_KEY:
-        print("[Gemini Service] GEMINI_API_KEY not found. Using fallback keyword parser.")
+    if not GEMINI_API_KEY or not HAS_GEMINI_SDK:
+        print("[Gemini Service] GEMINI_API_KEY not found or google-generativeai package not installed. Using fallback keyword parser.")
         return fallback_parser(query)
         
     prompt = f"""

@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import os
 
+from config import settings
 from agents import DiscoveryAgent, RecommendationAgent, BookingAgent, CancellationAgent, VENUES_DATABASE
 from gemini_service import generate_recommendation
 
@@ -17,11 +19,26 @@ app = FastAPI(
 # Enable CORS for frontend requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # TODO: Restrict in production
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Graceful Error Handling
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": exc.detail}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": "An unexpected server error occurred. Please try again later."}
+    )
 
 # Initialize Agent Instances
 discovery_agent = DiscoveryAgent()
@@ -64,6 +81,13 @@ def read_root():
         "status": "online",
         "message": "Welcome to the SportSphere AI API. Lucknow Sports Discovery Agent active."
     }
+
+@app.get("/health")
+def health_check():
+    # TODO: Rate limiting
+    # TODO: Authentication
+    # TODO: Database persistence
+    return {"status": "ok"}
 
 @app.get("/venues")
 async def get_venues(
@@ -217,4 +241,4 @@ async def chat_with_agent(payload: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=settings.PORT, reload=False)
