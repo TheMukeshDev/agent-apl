@@ -5,6 +5,7 @@ from typing import List, Optional
 import os
 
 from agents import DiscoveryAgent, RecommendationAgent, BookingAgent, CancellationAgent, VENUES_DATABASE
+from gemini_service import generate_recommendation
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -143,29 +144,74 @@ async def cancel_booking(req: CancelRequest):
         raise HTTPException(status_code=400, detail=result["message"])
     return result
 
-# Maintain chat route for backward compatibility / LLM agent chat support
+# Maintain chat route for conversational LLM agent discovery
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat_with_agent(payload: ChatRequest):
-    user_message = payload.message.lower()
+    user_message = payload.message
     
-    # Simple fallback parser
-    sport = "Badminton" if "badminton" in user_message else ("Football" if "football" in user_message else ("Swimming" if "swimming" in user_message else None))
-    location = "Gomti Nagar" if "gomti" in user_message else ("Chinhat" if "chinhat" in user_message else ("Aliganj" if "aliganj" in user_message else None))
-    budget = 200.0 if "cheap" in user_message or "budget" in user_message or "200" in user_message else None
+    # Call Gemini parser to extract parameters
+    extracted = generate_recommendation(user_message)
     
-    venues = discovery_agent.find_venues(sport=sport, location=location, budget=budget)
-    recommended = recommendation_agent.recommend(venues if venues else VENUES_DATABASE, sport=sport, location=location, budget=budget)
+    sport = extracted.get("sport")
+    location = extracted.get("location")
+    budget = extracted.get("budget")
+    skill = extracted.get("skill")
+    source = extracted.get("source", "fallback_parser")
     
-    is_booking_intent = any(keyword in user_message for keyword in ["book", "reserve", "slot", "confirm"])
+    # Discover
+    venues = discovery_agent.find_venues(
+        sport=sport, 
+        budget=budget, 
+        skill=skill, 
+        location=location
+    )
     
+    # Fallback to general list for recommendation scoring if none found
+    if not venues:
+        venues = VENUES_DATABASE
+        
+    # Rank
+    recommended = recommendation_agent.recommend(
+        venues, 
+        sport=sport, 
+        budget=budget, 
+        skill=skill, 
+        location=location
+    )
+    
+    # Build a conversational response based on extraction
+    source_tag = "Gemini LLM" if source == "gemini_api" else "rule-based parser"
+    
+    criteria = []
+    if sport: criteria.append(f"sport: {sport}")
+    if location: criteria.append(f"location: {location}")
+    if budget: criteria.append(f"budget under ₹{budget}")
+    if skill: criteria.append(f"skill: {skill}")
+    
+    if criteria:
+        agent_response = f"I've analyzed your query using our {source_tag}. Scanning sports venues matching {', '.join(criteria)}."
+    else:
+        agent_response = f"I've scanned the Lucknow sports network. Here are some options you might like:"
+        
+    if recommended:
+        top_venue = recommended[0]
+        agent_response += f" My top recommendation is **{top_venue['name']}** in {top_venue['location']} for ₹{top_venue['price']}/hr ({top_venue['skill']} level)."
+        if len(recommended) > 1:
+            agent_response += f" Alternatively, you can check out **{recommended[1]['name']}**."
+            
+    is_booking_intent = any(keyword in user_message.lower() for keyword in ["book", "reserve", "slot", "confirm"])
+    if is_booking_intent and recommended:
+        agent_response += " Would you like to book a slot for this venue now?"
+        
     return ChatResponse(
-        response=f"I've scanned the Lucknow sports grid for you. Here is my current assessment:",
-        suggested_venues=recommended[:2],
+        response=agent_response,
+        suggested_venues=recommended[:3],
         booking_intent_detected=is_booking_intent,
         extracted_parameters={
             "sport": sport or "any",
             "location": location or "any",
-            "budget": budget or "any"
+            "budget": budget or "any",
+            "skill": skill or "any"
         }
     )
 
