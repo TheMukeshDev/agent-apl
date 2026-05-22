@@ -1,0 +1,23 @@
+# FastAPI Backend Requirements for SportSphere AI
+# TODO: Install dependencies in local virtualenv using 'pip install -r requirements.txt'
+
+# Web Server & Framework
+fastapi==0.110.0
+uvicorn==0.28.0
+
+# Database Integration
+supabase==2.3.0
+pydantic-settings==2.2.1
+
+# AI / LLM Frameworks & SDKs
+# TODO: Implement Gemini model routing and tool calling using the official SDK
+google-generativeai==0.4.1
+langchain-core==0.1.30
+langchain-google-genai==1.0.1
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# General Utilities
+pydantic==2.6.4
+requests==2.31.0
