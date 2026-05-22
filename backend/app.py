@@ -4,10 +4,12 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 
+from agents import DiscoveryAgent, RecommendationAgent, BookingAgent, CancellationAgent, VENUES_DATABASE
+
 # Initialize FastAPI App
 app = FastAPI(
     title="SportSphere AI Backend",
-    description="Agentic sports infrastructure discovery and booking platform API",
+    description="Agentic sports infrastructure discovery and booking platform API for Lucknow",
     version="0.1.0"
 )
 
@@ -20,7 +22,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize Agent Instances
+discovery_agent = DiscoveryAgent()
+recommendation_agent = RecommendationAgent()
+booking_agent = BookingAgent()
+cancellation_agent = CancellationAgent()
+
 # --- Data Schemas ---
+
+class RecommendRequest(BaseModel):
+    sport: Optional[str] = None
+    budget: Optional[float] = None
+    skill: Optional[str] = None
+    location: Optional[str] = None
+
+class BookRequest(BaseModel):
+    venue_id: str
+    date: str
+    time_slot: str
+    user_name: Optional[str] = "Anonymous"
+
+class CancelRequest(BaseModel):
+    booking_id: str
 
 class ChatRequest(BaseModel):
     message: str
@@ -32,109 +55,119 @@ class ChatResponse(BaseModel):
     booking_intent_detected: bool
     extracted_parameters: dict
 
-class BookingRequest(BaseModel):
-    venue_id: str
-    slot: str
-    user_id: str
-
 # --- Endpoints ---
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the SportSphere AI API. Lucknow Sports Discovery Agent active."}
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat_with_agent(payload: ChatRequest):
-    """
-    TODO: Integrations planned for Phase 3:
-    1. Initialize the Google Gemini API client with GEMINI_API_KEY.
-    2. Define system instructions for the SportSphere AI Agent (behavior, scope limited to Lucknow).
-    3. Register tool functions:
-       - `list_venues(sport, area)` -> Query database
-       - `check_slot_availability(venue_id, slot)` -> Verify in database
-       - `book_slot(venue_id, user_id, slot)` -> Record booking
-    4. Call the model with user query & allow it to execute tools dynamically.
-    5. Return the agent conversation and any parsed/structured visual elements.
-    """
-    
-    user_message = payload.message.lower()
-    
-    # Mock fallback logic for initial demo
-    mock_extracted_params = {
-        "sport": "badminton" if "badminton" in user_message else "unknown",
-        "location": "gomti nagar" if "gomti" in user_message or "gomtinagar" in user_message else "lucknow",
-        "time": "evening" if "evening" in user_message or "night" in user_message else "anytime"
+    return {
+        "status": "online",
+        "message": "Welcome to the SportSphere AI API. Lucknow Sports Discovery Agent active."
     }
-    
-    # Mock venue lists based on inputs
-    mock_venues = []
-    if "badminton" in user_message:
-        mock_venues = [
-            {
-                "id": "v-001",
-                "name": "Gomti Nagar Badminton Arena",
-                "sport": "Badminton",
-                "area": "Gomti Nagar",
-                "price_per_hour": 350.0,
-                "rating": 4.7,
-                "coordinates": {"lat": 26.8549, "lng": 80.9992}
-            },
-            {
-                "id": "v-002",
-                "name": "Aliganj Sports Club",
-                "sport": "Badminton",
-                "area": "Aliganj",
-                "price_per_hour": 300.0,
-                "rating": 4.5,
-                "coordinates": {"lat": 26.8929, "lng": 80.9413}
-            }
-        ]
 
-    is_booking_intent = "book" in user_message or "reserve" in user_message
-
-    return ChatResponse(
-        response=f"Hi there! I detected you're looking for sports spaces in Lucknow. Here is what I found for '{user_message}':",
-        suggested_venues=mock_venues,
-        booking_intent_detected=is_booking_intent,
-        extracted_parameters=mock_extracted_params
+@app.get("/venues")
+async def get_venues(
+    sport: Optional[str] = None, 
+    location: Optional[str] = None, 
+    budget: Optional[float] = None, 
+    skill: Optional[str] = None
+):
+    """
+    Get and filter venues in Lucknow.
+    """
+    venues = discovery_agent.find_venues(
+        sport=sport, 
+        budget=budget, 
+        skill=skill, 
+        location=location
     )
-
-@app.get("/api/venues")
-async def get_venues(sport: Optional[str] = None, area: Optional[str] = None):
-    """
-    TODO: Integrations planned for Phase 2:
-    - Establish connection to Supabase or Firebase client.
-    - Query the 'venues' table.
-    - Filter by sport and location area.
-    """
     return {
         "status": "success",
-        "venues": [
-            {
-                "id": "v-001",
-                "name": "Gomti Nagar Badminton Arena",
-                "sport": "Badminton",
-                "area": "Gomti Nagar",
-                "available_slots": ["06:00 PM - 07:00 PM", "07:00 PM - 08:00 PM"]
-            }
-        ]
+        "count": len(venues),
+        "venues": venues
     }
 
-@app.post("/api/bookings")
-async def create_booking(booking: BookingRequest):
+@app.post("/recommend")
+async def get_recommendations(req: RecommendRequest):
     """
-    TODO: Integrations planned for Phase 5:
-    - Check lock on slot availability to prevent double-booking.
-    - Write record into the 'bookings' table.
-    - Dispatch mock booking confirmation SMS/Email.
+    Find and rank venues based on user preferences using a multi-criteria agent.
     """
+    # 1. Discovery
+    venues = discovery_agent.find_venues(
+        sport=req.sport, 
+        budget=req.budget, 
+        skill=req.skill, 
+        location=req.location
+    )
+    
+    # If no exact match found, fall back to all venues for scoring
+    if not venues:
+        venues = VENUES_DATABASE
+        
+    # 2. Recommendation Scoring
+    recommended_venues = recommendation_agent.recommend(
+        venues, 
+        sport=req.sport, 
+        budget=req.budget, 
+        skill=req.skill, 
+        location=req.location
+    )
+    
     return {
-        "status": "confirmed",
-        "booking_id": "b-9999",
-        "venue_id": booking.venue_id,
-        "slot": booking.slot,
-        "message": f"Successfully reserved slot {booking.slot}!"
+        "status": "success",
+        "count": len(recommended_venues),
+        "venues": recommended_venues
     }
+
+@app.post("/book")
+async def book_slot(req: BookRequest):
+    """
+    Book a slot at a venue. Managed in-memory.
+    """
+    result = booking_agent.book_slot(
+        venue_id=req.venue_id,
+        date=req.date,
+        time_slot=req.time_slot,
+        user_name=req.user_name
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+@app.post("/cancel")
+async def cancel_booking(req: CancelRequest):
+    """
+    Cancel an existing booking. Managed in-memory.
+    """
+    result = cancellation_agent.cancel_booking(booking_id=req.booking_id)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+# Maintain chat route for backward compatibility / LLM agent chat support
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_agent(payload: ChatRequest):
+    user_message = payload.message.lower()
+    
+    # Simple fallback parser
+    sport = "Badminton" if "badminton" in user_message else ("Football" if "football" in user_message else ("Swimming" if "swimming" in user_message else None))
+    location = "Gomti Nagar" if "gomti" in user_message else ("Chinhat" if "chinhat" in user_message else ("Aliganj" if "aliganj" in user_message else None))
+    budget = 200.0 if "cheap" in user_message or "budget" in user_message or "200" in user_message else None
+    
+    venues = discovery_agent.find_venues(sport=sport, location=location, budget=budget)
+    recommended = recommendation_agent.recommend(venues if venues else VENUES_DATABASE, sport=sport, location=location, budget=budget)
+    
+    is_booking_intent = any(keyword in user_message for keyword in ["book", "reserve", "slot", "confirm"])
+    
+    return ChatResponse(
+        response=f"I've scanned the Lucknow sports grid for you. Here is my current assessment:",
+        suggested_venues=recommended[:2],
+        booking_intent_detected=is_booking_intent,
+        extracted_parameters={
+            "sport": sport or "any",
+            "location": location or "any",
+            "budget": budget or "any"
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn
