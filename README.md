@@ -4,11 +4,11 @@
 ---
 
 ## 👥 Team Information
-- **Team Name:** `[Insert Team Name Here]`
-- **Team Members / GitHub Handles:**
-  - `[Member 1 Name]` - [@username1](https://github.com/username1)
-  - `[Member 2 Name]` - [@username2](https://github.com/username2)
-  - `[Member 3 Name]` - [@username3](https://github.com/username3)
+- **Team Name:** `GEEROH`
+- **Team Members **
+  1. Mukesh Kumar
+  2. Deepa Tiwari
+  3. Aryaman Patel
 
 ---
 
